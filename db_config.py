@@ -5,9 +5,8 @@ def get_connection():
     return mysql.connector.connect(
         host='localhost',
         user='root',
-        password='123456',
+        password='root@39',
         database='HospitalManagement',
-        auth_plugin='mysql_native_password'
     )
 
 # Optional: Test connection when running this file directly

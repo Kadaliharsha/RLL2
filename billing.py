@@ -56,19 +56,18 @@ class Bill:
             except IntegrityError:
                 print(f"Error: Duplicate Bill ID '{self.bill_id}'. Please use a unique ID.")
                 return
-            conn.commit()
-            print(f"Bill added successfully. Total amount: {total_amount}")
 
             # Insert service details into billed_services
             for s in services:
                 try:
                     cursor.execute(
-                        "INSERT INTO billed_services (bill_id, service_id, service_name, cost) VALUES (%s, %s, %s, %s)",
-                        (self.bill_id, s[0], s[1], s[2])
+                        "INSERT INTO billed_services (bill_id, patient_id, service_id, service_name, cost) VALUES (%s, %s, %s, %s, %s)",
+                        (self.bill_id, self.patient_id, s[0], s[1], s[2])
                     )
                 except IntegrityError:
                     print(f"Error: Duplicate service entry for bill {self.bill_id} and service {s[0]}. Skipping.")
             conn.commit()
+            print(f"Bill added successfully. Total amount: {total_amount}")
             print("Billed services recorded.")
         except Error as e:
             print("Database error while adding bill:", e)
@@ -83,6 +82,7 @@ class Bill:
             ServiceUsageDB.clear_services_for_patient(self.patient_id)
         except Exception as e:
             print("Error clearing temp service usage:", e)
+
 
     def update(self):
         # Data validation (same as add)
@@ -182,69 +182,83 @@ class Bill:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
 
+
     def generate_invoice(self):
         conn = get_connection()
         cursor = conn.cursor(dictionary=True)
         try:
-            # Fetch patient details
-            cursor.execute("SELECT * FROM patients WHERE patient_id=%s", (self.patient_id,))
+            # 1. Fetch patient details
+            cursor.execute("SELECT * FROM patients WHERE patient_id = %s", (self.patient_id,))
             patient = cursor.fetchone()
 
-            # Fetch doctor and appointment details
+            # 2. Fetch doctor and latest appointment details
             cursor.execute("""
                 SELECT a.date, d.name AS doctor_name, d.specialization, a.consulting_charge
                 FROM appointments a
                 JOIN doctors d ON a.doctor_id = d.doctor_id
-                WHERE a.patient_id=%s
+                WHERE a.patient_id = %s
                 ORDER BY a.date DESC LIMIT 1
             """, (self.patient_id,))
             appt = cursor.fetchone()
 
-            # Fetch services used
+            # 3. Fetch services used from billed_services
             cursor.execute("""
-                SELECT service_name, cost FROM billed_services WHERE bill_id=%s
+                SELECT s.service_name, bs.cost
+                FROM billed_services bs
+                JOIN services s ON bs.service_id = s.service_id
+                WHERE bs.bill_id = %s
             """, (self.bill_id,))
             services = cursor.fetchall()
-            print("DEBUG: Services fetched from billed_services:", services)
-            # Prepare invoice content
+
+            # 4. Prepare invoice content
             lines = []
-            lines.append("=== Hospital Invoice ===\n")
-            lines.append(f"Bill ID: {self.bill_id}")
-            lines.append(f"Patient ID: {self.patient_id}")
-            lines.append(f"Patient Name: {patient['name'] if patient else 'N/A'}")
-            lines.append(f"Date: {self.billing_date or datetime.date.today()}\n")
-
+            lines.append("="*60)
+            lines.append("                        HOSPITAL INVOICE")
+            lines.append("="*60)
+            lines.append(f"Bill No.    : {self.bill_id:<15}   Date: {self.billing_date}")
+            lines.append(f"Patient ID  : {self.patient_id:<15}   Name: {patient['name'] if patient else 'N/A'}")
+            lines.append("-"*60)
             if appt:
-                lines.append(f"Doctor: {appt['doctor_name']} ({appt['specialization']})")
-                lines.append(f"Consulting Charge: {appt['consulting_charge']}\n")
+                lines.append(f"Doctor      : {appt['doctor_name']} ({appt['specialization']})")
+                lines.append(f"Consultation Charge: ₹{float(appt['consulting_charge']):,.2f}")
             else:
-                lines.append("Doctor: N/A\nConsulting Charge: 0\n")
+                lines.append("Doctor      : N/A")
+                lines.append("Consultation Charge: ₹0.00")
+                
+            lines.append("-"*60)
+            lines.append(f"{'Service Name':30} {'Amount':>15}")
+            lines.append("-"*60)
 
-            lines.append("Services Used:")
             service_total = 0
             if services:
                 for s in services:
-                    lines.append(f"  - {s['service_name']}: {s['cost']}")
+                    # If you have quantity and unit price, use them; else just cost
+                    lines.append(f"{s['service_name'][:30]:30} {float(s['cost']):>15,.2f}")
                     service_total += float(s['cost'])
             else:
-                lines.append(" None")
+                lines.append(f"{'No services billed.':<57}")
 
-            lines.append(f"\nService Total: {service_total}")
-
+            lines.append("-"*60)
+            lines.append(f"{'Service Total':>47} : ₹{service_total:,.2f}")
             consulting_charge = float(appt['consulting_charge']) if appt else 0.0
+            lines.append(f"{'Consultation Charge':>47} : ₹{consulting_charge:,.2f}")
+            lines.append("-"*60)
             total = service_total + consulting_charge
-            lines.append(f"Total Amount: {total}\n")
-            lines.append("Thank you for choosing our hospital!\n")
+            lines.append(f"{'TOTAL AMOUNT DUE':>47} : ₹{total:,.2f}")
+            lines.append("="*60)
+            lines.append("Payment due within 30 days. For queries, call (123) 456-7890")
+            lines.append("="*60)
+            lines.append("        Thank you for choosing our Hospital!")
+            lines.append("="*60)
             
-            # Ensure output/invoices directory exists
+            # 5. Ensure output/invoices directory exists
             output_dir = os.path.join("output", "invoices")
             os.makedirs(output_dir, exist_ok=True)
 
-            # Write to file
+            # 6. Write to file
             filename = os.path.join(output_dir, f"bill_{self.patient_id}.txt")
-            with open(filename, "w") as f:
+            with open(filename, "w", encoding="utf-8") as f:
                 f.write('\n'.join(lines))
-
             print(f"Invoice generated and saved as {filename}")
 
         except Error as e:
@@ -254,7 +268,6 @@ class Bill:
         finally:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
-
 
     @staticmethod
     def export_billing_summary_to_csv(filename="billing_summary.csv"):
@@ -310,3 +323,22 @@ def compute_total_billing(patient_id):
     finally:
         if 'cursor' in locals(): cursor.close()
         if 'conn' in locals(): conn.close()
+
+def generate_next_bill_id():
+    from db_config import get_connection
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT bill_id FROM billing WHERE bill_id REGEXP '^B[0-9]+$'")
+    bill_ids = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    # Extract numeric part and find max
+    max_num = 0
+    for (bill_id,) in bill_ids:
+        try:
+            num = int(bill_id[1:])  # skip 'B'
+            if num > max_num:
+                max_num = num
+        except:
+            continue
+    return f'B{max_num+1:03d}'  # e.g., B301 if max was 300

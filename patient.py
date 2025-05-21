@@ -1,132 +1,113 @@
 from db_config import get_connection
-import re
 from datetime import datetime, date
-
-# Import MySQL-specific error classes
+from person import Person
+import re
 import mysql.connector
 from mysql.connector import IntegrityError, Error
 
-class Patient:
+class Patient(Person):
     def __init__(self, patient_id, name, age, gender, admission_date, contact_no):
+        super().__init__(patient_id, name, contact_no)
         self.patient_id = patient_id
-        self.name = name
         self.age = age
         self.gender = gender
         self.admission_date = admission_date
-        self.contact_no = contact_no
 
     def add(self):
-        # Validate Patient ID (integer)
-        try:
-            patient_id = int(self.patient_id)
-            if patient_id <= 0:
-                print("Invalid Patient ID. Must be a positive integer.")
-                return
-        except ValueError:
-            print("Invalid Patient ID. Must be an integer.")
-            return
-
-        # Validate Name
-        if not self.name or not self.name.replace(' ', '').isalpha():
-            print("Invalid Name. Name must contain only letters and spaces.")
-            return
-
-        # Validate Age
+        # Name validation
+        if not self.name or not re.match(r'^[A-Za-z. ]+$', self.name):
+            print("Invalid Name. Only letters, spaces, and periods allowed.")
+            return False
+        # Age validation
         try:
             age = int(self.age)
             if age < 0 or age > 120:
                 print("Invalid Age. Must be between 0 and 120.")
-                return
+                return False
         except ValueError:
             print("Invalid Age. Must be a number.")
-            return
-
-        # Validate Gender
+            return False
+        # Gender validation
         if self.gender not in ['M', 'F', 'Other']:
             print("Invalid Gender. Choose from M, F, Other.")
-            return
-
-        # Validate Admission Date using regex
+            return False
+        # Admission date validation
         if not re.match(r'^\d{4}-\d{2}-\d{2}$', self.admission_date):
             print("Invalid Admission Date. Use YYYY-MM-DD format.")
-            return
-
-        # Validate Contact Number
+            return False
+        # Contact number validation
         if not self.contact_no.isdigit() or len(self.contact_no) < 10:
             print("Invalid Contact Number. Must be at least 10 digits.")
-            return
+            return False
 
         # Insert into DB with exception handling
         try:
             conn = get_connection()
             cursor = conn.cursor()
             sql = "INSERT INTO patients (patient_id, name, age, gender, admission_date, contact_no) VALUES (%s, %s, %s, %s, %s, %s)"
-            cursor.execute(sql, (patient_id, self.name, age, self.gender, self.admission_date, self.contact_no))
+            cursor.execute(sql, (self.patient_id, self.name, age, self.gender, self.admission_date, self.contact_no))
             conn.commit()
-            print("Patient added successfully.")
-        except IntegrityError:
-            print(f"Error: Duplicate Patient ID '{patient_id}'. Please use a unique ID.")
-        except Error as e:
-            print("Database error while adding patient:", e)
+            return True
+        except mysql.connector.errors.IntegrityError as e:
+            if "PRIMARY" in str(e):
+                print(f"Error: Duplicate Patient ID '{self.patient_id}'. Please use a unique ID.")
+            else:
+                print("Database integrity error: ", e)
+            return False
         except Exception as e:
             print("Unexpected error while adding patient:", e)
+            return False
         finally:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
 
     def update(self):
-        # Validate Patient ID (integer)
-        try:
-            patient_id = int(self.patient_id)
-            if patient_id <= 0:
-                print("Invalid Patient ID. Must be a positive integer.")
-                return
-        except ValueError:
-            print("Invalid Patient ID. Must be an integer.")
-            return
-
-        if not self.name or not self.name.replace(' ', '').isalpha():
-            print("Invalid Name.")
-            return
-
+        # Name validation
+        if not self.name or not re.match(r'^[A-Za-z. ]+$', self.name):
+            print("Invalid Name. Only letters, spaces, and periods allowed.")
+            return False
+        # Age validation
         try:
             age = int(self.age)
-            if age <= 0 or age > 120:
-                print("Invalid Age.")
-                return
+            if age < 0 or age > 120:
+                print("Invalid Age. Must be between 0 and 120.")
+                return False
         except ValueError:
-            print("Invalid Age.")
-            return
-
+            print("Invalid Age. Must be a number.")
+            return False
+        # Gender validation
         if self.gender not in ['M', 'F', 'Other']:
             print("Invalid Gender. Choose from M, F, Other.")
-            return
-
+            return False
+        # Admission date validation
         try:
-            import datetime
-            datetime.datetime.strptime(self.admission_date, "%Y-%m-%d")
+            datetime.strptime(self.admission_date, "%Y-%m-%d")
         except ValueError:
             print("Invalid Admission Date. Use YYYY-MM-DD format.")
-            return
-
+            return False
+        # Contact number validation
         if not self.contact_no.isdigit() or len(self.contact_no) < 10:
-            print("Invalid Contact Number.")
-            return
+            print("Invalid Contact Number. Must be at least 10 digits.")
+            return False
 
         try:
             conn = get_connection()
             cursor = conn.cursor()
             sql = """UPDATE patients SET name=%s, age=%s, gender=%s, admission_date=%s, contact_no=%s WHERE patient_id=%s"""
-            cursor.execute(sql, (self.name, age, self.gender, self.admission_date, self.contact_no, patient_id))
+            cursor.execute(sql, (self.name, age, self.gender, self.admission_date, self.contact_no, self.patient_id))
             conn.commit()
             if cursor.rowcount == 0:
-                print(f"No patient found with ID '{patient_id}'.")
+                print(f"No patient found with ID '{self.patient_id}'.")
+                return False
             else:
                 print("Patient updated successfully.")
-        except Error as e:
-            print("Database error while updating patient:", e)
+                return True
+        except mysql.connector.errors.IntegrityError as e:
+            print("Database integrity error: ", e)
+            return False
         except Exception as e:
             print("Unexpected error while updating patient:", e)
+            return False
         finally:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
@@ -141,12 +122,16 @@ class Patient:
             conn.commit()
             if cursor.rowcount == 0:
                 print(f"No patient found with ID '{patient_id}'.")
+                return False
             else:
                 print("Patient deleted successfully.")
+                return True
         except Error as e:
             print("Database error while deleting patient:", e)
+            return False
         except Exception as e:
             print("Unexpected error while deleting patient:", e)
+            return False
         finally:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
@@ -158,7 +143,7 @@ class Patient:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM patients")
             rows = cursor.fetchall()
-            print("patient_ID | Name | Age | Gender | Admission Date | Contact No")
+            print("Patient_ID | Name | Age | Gender | Admission Date | Contact No")
             for row in rows:
                 print(" | ".join(str(x) for x in row))
         except Error as e:
@@ -191,7 +176,7 @@ class Patient:
         finally:
             cursor.close()
             conn.close()
-            
+
     @staticmethod
     def search_by_name(name_substring):
         conn = get_connection()
@@ -201,7 +186,7 @@ class Patient:
             cursor.execute("SELECT * FROM patients WHERE name LIKE %s", (search_pattern,))
             rows = cursor.fetchall()
             if rows:
-                print("patient_ID | Name | Age | Gender | Admission Date | Contact No")
+                print("Patient_ID | Name | Age | Gender | Admission Date | Contact No")
                 for row in rows:
                     print(" | ".join(str(x) for x in row))
             else:
@@ -211,3 +196,16 @@ class Patient:
         finally:
             cursor.close()
             conn.close()
+
+def generate_next_patient_id():
+    from db_config import get_connection
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(patient_id) FROM patients")
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    max_id = row[0]
+    if max_id is None:
+        return 1001
+    return int(max_id) + 1

@@ -4,6 +4,8 @@ USE HospitalManagement;
 
 drop database Hospitalmanagement;
 
+show tables;
+
 -- Patients Table
 CREATE TABLE patients (
     patient_id INT PRIMARY KEY auto_increment,
@@ -13,7 +15,6 @@ CREATE TABLE patients (
     admission_date DATE,
     contact_no VARCHAR(15)
 );
-show tables;
 
 -- Doctors Table
 CREATE TABLE doctors (
@@ -66,18 +67,33 @@ CREATE TABLE temp_service_usage (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Billed services for invoice generation
+CREATE TABLE billed_services (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    bill_id VARCHAR(10),
+    patient_id INT,
+    service_id VARCHAR(10),
+    service_name VARCHAR(100),
+    cost DECIMAL(10,2),
+    billed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (bill_id) REFERENCES billing(bill_id) ON DELETE CASCADE,
+    FOREIGN KEY (patient_id) REFERENCES patients(patient_id) ON DELETE CASCADE,
+    FOREIGN KEY (service_id) REFERENCES services(service_id) ON DELETE SET NULL
+);
+
 select * from patients;
 select * from doctors;
 select * from services;
 select * from appointments;
 select * from billing;
 select * from temp_service_usage;
+select * from billed_services;
 
 select service_id, service_name, cost from services where service_id='S01';
 
 DELETE FROM patients WHERE patient_id = '1001';
 DELETE FROM doctors;
-DELETE FROM services WHERE service_id = 'S01';
+DELETE FROM services WHERE service_id = 's04';
 DELETE FROM appointments WHERE appt_id = 'A001';
 DELETE FROM billing WHERE bill_id = 'B001';
 
@@ -88,6 +104,7 @@ TRUNCATE TABLE patients;
 TRUNCATE TABLE doctors;
 TRUNCATE TABLE services;
 TRUNCATE TABLE temp_service_usage;
+TRUNCATE TABLE billed_services;
 SET FOREIGN_KEY_CHECKS = 1;
 
 ALTER TABLE services
@@ -96,15 +113,10 @@ MODIFY COLUMN cost decimal(7,2);
 ALTER TABLE billing
 MODIFY COLUMN total_amount decimal(10,2);
 
--- Task Discription 8 : Implement data-based filtering 
-select * from appointments where date = curdate();
 
-select * from appointments where date >= date_sub(curdate(), interval 6 day) and date <= curdate();
 
-select * from appointments where date >= date_sub(curdate(), interval 7 day) and date < curdate();
-
-insert into patients (patient_id, name, age, gender, contact_no) values (1001, 'John', 30,'M','9876543210');
-insert into patients (patient_id, name, age, gender, contact_no) values (1002, 'Roxy', 25,'F','8897324001');
+insert into patients (patient_id, name, age, gender, admission_date, contact_no) values (1001, 'John', 30,'M','2024-03-05','9876543210');
+insert into patients (patient_id, name, age, gender, admission_date, contact_no) values (1002, 'Roxy', 25,'F','2024-03-08','8897324001');
 
 insert into doctors (doctor_id, name, specialization, contact_no) values ('D01', 'Dr. Jordan', 'Cardiology','9398433001');
 insert into doctors (doctor_id, name, specialization, contact_no) values ('D02', 'Dr. Claire', 'Neurology','8897730012');
@@ -113,6 +125,12 @@ insert into appointments (appt_id,patient_id, doctor_id, date, diagnosis, consul
 insert into appointments (appt_id,patient_id, doctor_id, date, diagnosis, consulting_charge) values ('A002','1002','D02','2024-03-08','HyperTension',400);
 
 insert into services (service_id, service_name, cost) values ('S01','X-ray',500), ('S02','Blood Test',300), ('S03','ECG',700);
+
+
+-- Task Discription 8 : Implement data-based filtering 
+select * from appointments where date = curdate();
+select * from appointments where date >= date_sub(curdate(), interval 6 day) and date <= curdate();
+select * from appointments where date >= date_sub(curdate(), interval 10 day) and date < curdate();
 
 -- Task Description 11 : Insert billing details to the billing table with current date
 INSERT INTO billing (bill_id, patient_id, total_amount, billing_date) VALUES ('B001', 1001, 1200.50, CURDATE());
@@ -145,4 +163,26 @@ WHERE
     p.patient_id = 1001
 ORDER BY
     a.date, tsu.created_at;
+    
+-- Task Descriptiom : Add reporting features: daily visits, most consulted doctors - SQL Aggregates
+-- 1. Daily visits report
+select date, count(*) as visit_count from appointments group by date order by date desc;
+
+-- 2. Most consulted report
+select
+	d.doctor_id, 
+    d.name, 
+    d.specialization, 
+    count(*) as num_appointments 
+from 
+	appointments a 
+join doctors d on a.doctor_id = d.doctor_id
+group by
+	d.doctor_id,
+    d.name,
+    d.specialization
+order by
+	num_appointments
+desc;
+ 
 

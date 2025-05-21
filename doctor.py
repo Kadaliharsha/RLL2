@@ -1,31 +1,33 @@
 import re
 from db_config import get_connection
-
-# Add these imports for MySQL exception handling
+from person import Person
 import mysql.connector
 from mysql.connector import IntegrityError, Error
 
-class Doctor:
+class Doctor(Person):
     def __init__(self, doctor_id, name, specialization, contact_no):
+        super().__init__(doctor_id, name, contact_no)
         self.doctor_id = doctor_id
-        self.name = name
         self.specialization = specialization
-        self.contact_no = contact_no
+        self.name = self._format_name(name)
+
+    def _format_name(self, name):
+        name = name.strip()
+        if not name.lower().startswith("dr."):
+            return "Dr. " + name
+        return name
 
     def add(self):
-        # Enhanced Data validation
-        if not self.doctor_id or not isinstance(self.doctor_id, str) or not re.match(r'^(?=.*[A-Za-z])[A-Za-z0-9]+$', self.doctor_id):
-            print("Invalid Doctor ID. It must be alphanumeric and contain at least one letter (no spaces or special characters).")
-            return
-        if not self.name or not all(x.isalpha() or x.isspace() for x in self.name):
-            print("Invalid Name. Only letters and spaces allowed.")
-            return
+        # Data validation (no doctor_id validation needed)
+        if not self.name or not re.match(r'^[A-Za-z. ]+$', self.name):
+            print("Invalid Name. Only letters, spaces, and periods allowed.")
+            return False
         if not self.specialization or not all(x.isalpha() or x.isspace() for x in self.specialization):
             print("Invalid Specialization. Only letters and spaces allowed.")
-            return
+            return False
         if not self.contact_no.isdigit() or len(self.contact_no) < 10:
             print("Invalid Contact Number. Only digits allowed, minimum 10 digits.")
-            return
+            return False
 
         try:
             conn = get_connection()
@@ -33,31 +35,33 @@ class Doctor:
             sql = "INSERT INTO doctors (doctor_id, name, specialization, contact_no) VALUES (%s, %s, %s, %s)"
             cursor.execute(sql, (self.doctor_id, self.name, self.specialization, self.contact_no))
             conn.commit()
-            print("Doctor added successfully.")
-        except IntegrityError:
-            print(f"Error: Duplicate Doctor ID '{self.doctor_id}'. Please use a unique ID.")
-        except Error as e:
-            print("Database error while adding doctor:", e)
+            return True
+        except mysql.connector.errors.IntegrityError as e:
+            if "unique_contact_no" in str(e):
+                print(f"Error: Contact number '{self.contact_no}' already exists. Please use a unique contact number.")
+            elif "PRIMARY" in str(e):
+                print(f"Error: Duplicate Doctor ID '{self.doctor_id}'. Please use a unique ID.")
+            else:
+                print("Database integrity error: ", e)
+            return False
         except Exception as e:
             print("Unexpected error while adding doctor:", e)
+            return False
         finally:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
 
     def update(self):
-        # Enhanced Data validation (same as add)
-        if not self.doctor_id or not isinstance(self.doctor_id, str) or not re.match(r'^(?=.*[A-Za-z])[A-Za-z0-9]+$', self.doctor_id):
-            print("Invalid Doctor ID. It must be alphanumeric and contain at least one letter (no spaces or special characters).")
-            return
-        if not self.name or not all(x.isalpha() or x.isspace() for x in self.name):
-            print("Invalid Name. Only letters and spaces allowed.")
-            return
+        # Data validation (no doctor_id validation needed)
+        if not self.name or not re.match(r'^[A-Za-z. ]+$', self.name):
+            print("Invalid Name. Only letters, spaces, and periods allowed.")
+            return False
         if not self.specialization or not all(x.isalpha() or x.isspace() for x in self.specialization):
             print("Invalid Specialization. Only letters and spaces allowed.")
-            return
+            return False
         if not self.contact_no.isdigit() or len(self.contact_no) < 10:
             print("Invalid Contact Number. Only digits allowed, minimum 10 digits.")
-            return
+            return False
 
         try:
             conn = get_connection()
@@ -67,22 +71,23 @@ class Doctor:
             conn.commit()
             if cursor.rowcount == 0:
                 print(f"Doctor ID '{self.doctor_id}' not found.")
+                return False
             else:
                 print("Doctor updated successfully.")
+                return True
         except Error as e:
             print("Database error while updating doctor:", e)
+            return False
         except Exception as e:
             print("Unexpected error while updating doctor:", e)
+            return False
         finally:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
 
     @staticmethod
     def delete(doctor_id):
-        if not doctor_id or not isinstance(doctor_id, str) or not re.match(r'^(?=.*[A-Za-z])[A-Za-z0-9]+$', doctor_id):
-            print("Invalid Doctor ID. It must be alphanumeric and contain at least one letter (no spaces or special characters).")
-            return
-
+        # No need to validate doctor_id if always generated by system
         try:
             conn = get_connection()
             cursor = conn.cursor()
@@ -91,12 +96,16 @@ class Doctor:
             conn.commit()
             if cursor.rowcount == 0:
                 print(f"Doctor ID '{doctor_id}' not found.")
+                return False
             else:
                 print("Doctor deleted successfully.")
+                return True
         except Error as e:
             print("Database error while deleting doctor:", e)
+            return False
         except Exception as e:
             print("Unexpected error while deleting doctor:", e)
+            return False
         finally:
             if 'cursor' in locals(): cursor.close()
             if 'conn' in locals(): conn.close()
@@ -138,3 +147,14 @@ class Doctor:
         finally:
             cursor.close()
             conn.close()
+
+def generate_next_doctor_id():
+    from db_config import get_connection
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT doctor_id FROM doctors WHERE doctor_id LIKE 'D%'")
+    ids = [int(row[0][1:]) for row in cursor.fetchall() if row[0][1:].isdigit()]
+    cursor.close()
+    conn.close()
+    next_num = max(ids) + 1 if ids else 1
+    return f"D{next_num:02d}"  # D01, D02, ..., D99, D100, etc.
